@@ -1,6 +1,10 @@
 package com.zachm.employeelogin
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
 import android.graphics.Rect
+import android.graphics.YuvImage
 import android.util.Log
 import android.util.Size
 import androidx.annotation.OptIn
@@ -25,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executor
 import kotlin.math.abs
 
@@ -81,20 +86,25 @@ class CameraViewModel : ViewModel() {
 
     @OptIn(ExperimentalGetImage::class)
     fun detectFaces(proxy: ImageProxy, screenSize: IntSize) {
-        proxy.image?.let { ///Null check
+        proxy.image?.let { //Null check
             viewModelScope.launch {
-                withTimeout(10000) {
+                withTimeout(20000) {
                     try {
                         val inputImage = InputImage.fromMediaImage(it, proxy.imageInfo.rotationDegrees)
                         detector.value!!.process(inputImage)
                             .addOnSuccessListener {
                                 val boxes = mutableListOf<Rect>()
+                                val source = proxy.toBitmap()
 
                                 it.forEach { face ->
-                                    val box = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), face.boundingBox, proxy.imageInfo.rotationDegrees)
-                                    boxes.add(box)
+                                    val box = face.boundingBox
+                                    val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
+                                    val cropped = Bitmap.createBitmap(source, box.left.coerceIn(0,box.width()), box.top.coerceIn(0,box.height()), box.width(), box.height())
+                                    cropped.recycle()
+                                    boxes.add(scaledBox)
                                 }
                                 _bboxes.value = boxes
+                                source.recycle()
 
                                 proxy.close()
                             }
@@ -109,6 +119,33 @@ class CameraViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    /**
+     * Most Android Cameras Use 420 but still good to check
+     */
+    private fun isYUV420(proxy: ImageProxy): Boolean {
+        return proxy.format == ImageFormat.YUV_420_888
+    }
+
+    private fun createBitmapFromRect(proxy: ImageProxy, box: Rect) : Bitmap {
+        val yBuffer = proxy.planes[0].buffer
+        val uBuffer = proxy.planes[1].buffer
+        val vBuffer = proxy.planes[2].buffer
+
+        val ySize = yBuffer.remaining()
+        val uSize = uBuffer.remaining()
+        val vSize = vBuffer.remaining()
+
+        val nv21 = ByteArray(ySize + uSize + vSize)
+        yBuffer.get(nv21, 0, ySize)
+        uBuffer.get(nv21, ySize, uSize)
+        vBuffer.get(nv21, ySize + uSize, vSize)
+
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, proxy.width, proxy.height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(box, 100, out)
+        return BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
     }
 
     /**
