@@ -1,8 +1,6 @@
 package com.zachm.employeelogin.ui.screens
 
 
-import android.graphics.Rect
-import android.util.Log
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -18,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawStyle
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.tooling.preview.Preview
@@ -38,7 +35,6 @@ fun CameraScreen(
 
     val boxes by viewModel.bboxes.collectAsState()
     var screenSize by remember { mutableStateOf(IntSize(0,0)) }
-    val cameraSize by viewModel.imageSize.collectAsState()
 
     Box(
         modifier = Modifier
@@ -53,7 +49,8 @@ fun CameraScreen(
             },
             modifier = Modifier.fillMaxSize(),
             update = {
-                viewModel.updateCameraFeed(processCamera, it.surfaceProvider, lifeCycleOwner, thread)
+                viewModel.updateCameraFeed(processCamera, it.surfaceProvider, lifeCycleOwner, thread, screenSize)
+
             }
         )
 
@@ -63,12 +60,10 @@ fun CameraScreen(
             boxes?.let {
                 it.forEach { rect->
 
-                    val scaledRect = getScaledRect(screenSize, cameraSize ?: IntSize(0,0), rect)
-
                     drawRect(
                         color = Color.Red,
-                        topLeft = Offset(scaledRect.left.toFloat(), scaledRect.top.toFloat()),
-                        size = Size(scaledRect.width().toFloat(), scaledRect.height().toFloat()),
+                        topLeft = Offset(rect.left.toFloat(), rect.top.toFloat()),
+                        size = Size(rect.width().toFloat(), rect.height().toFloat()),
                         style = Stroke(width = 4f)
                     )
                 }
@@ -76,18 +71,6 @@ fun CameraScreen(
         }
 
     }
-}
-
-private fun getScaledRect(screenSize: IntSize, cameraSize: IntSize, rect: Rect): Rect {
-    val widthRatio = screenSize.width.toFloat() / cameraSize.width.toFloat()
-    val heightRatio = screenSize.height.toFloat() / cameraSize.height.toFloat()
-
-    return Rect(
-        (rect.left * widthRatio).toInt(),
-        (rect.top * heightRatio).toInt(),
-        (rect.right * widthRatio).toInt(),
-        (rect.bottom * heightRatio).toInt()
-    )
 }
 
 @Preview
