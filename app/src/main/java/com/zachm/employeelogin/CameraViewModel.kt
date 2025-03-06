@@ -5,9 +5,11 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
+import android.os.Build
 import android.util.Log
 import android.util.Size
 import androidx.annotation.OptIn
+import androidx.annotation.RequiresApi
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -25,6 +27,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.zachm.employeelogin.util.Embedding
+import com.zachm.employeelogin.util.Employee
+import com.zachm.employeelogin.util.Model
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -37,10 +42,14 @@ class CameraViewModel : ViewModel() {
 
     val permissionGranted: MutableLiveData<Boolean> by lazy { MutableLiveData<Boolean>(false) }
     val detector: MutableLiveData<FaceDetector> by lazy { MutableLiveData<FaceDetector>() }
+    val modelFile: MutableLiveData<Model> by lazy { MutableLiveData<Model>() }
+    val employees: MutableLiveData<List<Employee>> by lazy { MutableLiveData<List<Employee>>(listOf()) }
+    val employeeMap: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
 
     private val _bboxes = MutableStateFlow<List<Rect>?>(null)
     val bboxes: StateFlow<List<Rect>?> get() = _bboxes
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     fun updateCameraFeed(
         processCamera: ListenableFuture<ProcessCameraProvider>,
         surfaceProvider: Preview.SurfaceProvider,
@@ -84,6 +93,7 @@ class CameraViewModel : ViewModel() {
     }
 
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     @OptIn(ExperimentalGetImage::class)
     fun detectFaces(proxy: ImageProxy, screenSize: IntSize) {
         proxy.image?.let { //Null check
@@ -98,10 +108,32 @@ class CameraViewModel : ViewModel() {
 
                                 it.forEach { face ->
                                     val box = face.boundingBox
+
+                                    //Screen Stuff (UI)
                                     val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
-                                    val cropped = Bitmap.createBitmap(source, box.left.coerceIn(0,box.width()), box.top.coerceIn(0,box.height()), box.width(), box.height())
-                                    cropped.recycle()
                                     boxes.add(scaledBox)
+
+                                    //Model Stuff
+                                    val cropped = Bitmap.createBitmap(source, box.left.coerceIn(0,box.width()), box.top.coerceIn(0,box.height()), box.width(), box.height())
+                                    val embedding = modelFile.value!!.run(cropped, proxy.imageInfo.rotationDegrees)
+
+                                    face.trackingId?.let { id ->
+                                        if(employeeMap.value!!.contains(id)) {
+                                            val employee = employeeMap.value!![id]
+                                        }
+                                        else {
+                                            employeeMap.value!![id] = Employee("Unknown", mutableListOf(embedding), id)
+                                            employees.value!!.forEach { employee ->
+                                                employee.embeddings.forEach { employeeEmbedding ->
+                                                    val distance = employeeEmbedding.compareDistance(embedding)
+                                                    if(distance >= 0.85) {
+
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                 }
                                 _bboxes.value = boxes
                                 source.recycle()
