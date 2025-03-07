@@ -30,6 +30,7 @@ import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.zachm.employeelogin.util.Embedding
 import com.zachm.employeelogin.util.Employee
 import com.zachm.employeelogin.util.Model
+import com.zachm.employeelogin.util.TrackedFaces
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -43,11 +44,11 @@ class CameraViewModel : ViewModel() {
     val permissionGranted: MutableLiveData<Boolean> by lazy { MutableLiveData<Boolean>(false) }
     val detector: MutableLiveData<FaceDetector> by lazy { MutableLiveData<FaceDetector>() }
     val modelFile: MutableLiveData<Model> by lazy { MutableLiveData<Model>() }
-    val employees: MutableLiveData<List<Employee>> by lazy { MutableLiveData<List<Employee>>(listOf()) }
+    val employees: MutableLiveData<HashSet<Employee>> by lazy { MutableLiveData<HashSet<Employee>>(hashSetOf()) }
     val employeeMap: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
 
-    private val _bboxes = MutableStateFlow<List<Rect>?>(null)
-    val bboxes: StateFlow<List<Rect>?> get() = _bboxes
+    private val _trackedFaces = MutableStateFlow<MutableList<TrackedFaces>?>(null)
+    val trackedFaces: StateFlow<MutableList<TrackedFaces>?> get() = _trackedFaces
 
     @RequiresApi(Build.VERSION_CODES.Q)
     fun updateCameraFeed(
@@ -92,7 +93,21 @@ class CameraViewModel : ViewModel() {
 
     }
 
+    fun addEmployee(employee: Employee) {
+        employees.value!!.add(employee)
+        employeeMap.value!![0] = employee
+    }
 
+    fun addNewEmployee(name: String, embedding: Embedding, currentId: Int) {
+        val employee = Employee(name, mutableListOf(embedding), currentId)
+        employeeMap.value!![0] = employee
+        if(!employees.value!!.contains(employee)) employees.value!!.add(employee)
+    }
+
+
+    /**
+     * Runs both Face Detection and Face Recognition on the ImageProxy
+     */
     @RequiresApi(Build.VERSION_CODES.Q)
     @OptIn(ExperimentalGetImage::class)
     fun detectFaces(proxy: ImageProxy, screenSize: IntSize) {
@@ -103,15 +118,15 @@ class CameraViewModel : ViewModel() {
                         val inputImage = InputImage.fromMediaImage(it, proxy.imageInfo.rotationDegrees)
                         detector.value!!.process(inputImage)
                             .addOnSuccessListener {
-                                val boxes = mutableListOf<Rect>()
+                                val faces = mutableListOf<TrackedFaces>()
                                 val source = proxy.toBitmap()
 
                                 it.forEach { face ->
                                     val box = face.boundingBox
+                                    var employee: Employee? = null
 
                                     //Screen Stuff (UI)
                                     val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
-                                    boxes.add(scaledBox)
 
                                     //Model Stuff
                                     val cropped = Bitmap.createBitmap(source, box.left.coerceIn(0,box.width()), box.top.coerceIn(0,box.height()), box.width(), box.height())
@@ -119,23 +134,35 @@ class CameraViewModel : ViewModel() {
 
                                     face.trackingId?.let { id ->
                                         if(employeeMap.value!!.contains(id)) {
-                                            val employee = employeeMap.value!![id]
+                                            employeeMap.value!![id]!!.embeddings.forEach { employeeEmbedding ->
+                                                val distance = employeeEmbedding.compareDistance(embedding)
+                                                Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
+
+                                                if(distance >= 0.7) {
+                                                    employee = employeeMap.value!![id]
+                                                    employee!!.currentTackID = id
+                                                }
+                                            }
                                         }
                                         else {
-                                            employeeMap.value!![id] = Employee("Unknown", mutableListOf(embedding), id)
                                             employees.value!!.forEach { employee ->
                                                 employee.embeddings.forEach { employeeEmbedding ->
                                                     val distance = employeeEmbedding.compareDistance(embedding)
-                                                    if(distance >= 0.85) {
 
+                                                    if(distance >= 0.7) {
+                                                        employee.currentTackID
+                                                        employeeMap.value!![id] = employee
                                                     }
                                                 }
                                             }
                                         }
                                     }
 
+                                    //Unknown
+                                    faces.add(TrackedFaces(face.trackingId ?: 0, scaledBox, employee, embedding))
+
                                 }
-                                _bboxes.value = boxes
+                                _trackedFaces.value = faces
                                 source.recycle()
 
                                 proxy.close()
@@ -160,6 +187,9 @@ class CameraViewModel : ViewModel() {
         return proxy.format == ImageFormat.YUV_420_888
     }
 
+    /**
+     * Converts the ImageProxy to a Bitmap using GPU YUV.
+     */
     private fun createBitmapFromRect(proxy: ImageProxy, box: Rect) : Bitmap {
         val yBuffer = proxy.planes[0].buffer
         val uBuffer = proxy.planes[1].buffer
@@ -191,7 +221,7 @@ class CameraViewModel : ViewModel() {
 
         val cameraAspectRatio = cameraSize.width.toFloat() / cameraSize.height.toFloat()
         val screenAspectRatio = screenSize.width.toFloat() / screenSize.height.toFloat()
-        val aspectRatioDiff = abs(cameraAspectRatio - screenAspectRatio)
+        val aspectRatio = abs(cameraAspectRatio - screenAspectRatio)
 
         val box = Rect(
             (rect.left * widthRatio).toInt(),
@@ -200,27 +230,30 @@ class CameraViewModel : ViewModel() {
             (rect.bottom * heightRatio).toInt()
         )
 
-        val padding = 0.8f
+        val scaleX = -0.1f
+        val scaleY = 0.15f
 
         when {
             isPortrait -> {
                 return Rect(
-                    box.left - (box.width() * padding).toInt(),
-                    box.top - ((aspectRatioDiff * box.height())/4).toInt(),
-                    box.right + (box.width() * padding).toInt(),
-                    box.bottom + ((aspectRatioDiff * box.height())/4).toInt()
+                    box.left - (box.width() * scaleY).toInt(),
+                    box.top - (box.height() * scaleX).toInt(),
+                    box.right + (box.width() * scaleY).toInt(),
+                    box.bottom + (box.height() * scaleX).toInt()
                 )
             }
             else -> {
                 return Rect(
-                    box.left - ((aspectRatioDiff * box.width())/4).toInt(),
-                    box.top - (box.height() * padding).toInt(),
-                    box.right + ((aspectRatioDiff * box.width())/4).toInt(),
-                    box.bottom + (box.height() * padding).toInt()
+                    box.left - (box.width() * scaleX).toInt(),
+                    box.top - (box.height() * scaleY).toInt(),
+                    box.right + (box.width() * scaleX).toInt(),
+                    box.bottom + (box.height() * scaleY).toInt()
                 )
             }
         }
     }
+
+    fun resetEmployeeMap() { employeeMap.value = hashMapOf() }
 
 
     fun getDetectorOptions() : FaceDetectorOptions {
