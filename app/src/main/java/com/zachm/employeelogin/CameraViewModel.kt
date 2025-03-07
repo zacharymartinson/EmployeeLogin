@@ -44,7 +44,7 @@ class CameraViewModel : ViewModel() {
     val permissionGranted: MutableLiveData<Boolean> by lazy { MutableLiveData<Boolean>(false) }
     val detector: MutableLiveData<FaceDetector> by lazy { MutableLiveData<FaceDetector>() }
     val modelFile: MutableLiveData<Model> by lazy { MutableLiveData<Model>() }
-    val employees: MutableLiveData<MutableList<Employee>> by lazy { MutableLiveData<MutableList<Employee>>(mutableListOf()) }
+    val employees: MutableLiveData<HashSet<Employee>> by lazy { MutableLiveData<HashSet<Employee>>(hashSetOf()) }
     val employeeMap: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
 
     private val _trackedFaces = MutableStateFlow<MutableList<TrackedFaces>?>(null)
@@ -101,9 +101,13 @@ class CameraViewModel : ViewModel() {
     fun addNewEmployee(name: String, embedding: Embedding, currentId: Int) {
         val employee = Employee(name, mutableListOf(embedding), currentId)
         employeeMap.value!![0] = employee
+        if(!employees.value!!.contains(employee)) employees.value!!.add(employee)
     }
 
 
+    /**
+     * Runs both Face Detection and Face Recognition on the ImageProxy
+     */
     @RequiresApi(Build.VERSION_CODES.Q)
     @OptIn(ExperimentalGetImage::class)
     fun detectFaces(proxy: ImageProxy, screenSize: IntSize) {
@@ -130,13 +134,22 @@ class CameraViewModel : ViewModel() {
 
                                     face.trackingId?.let { id ->
                                         if(employeeMap.value!!.contains(id)) {
-                                            employee = employeeMap.value!![id]
+                                            employeeMap.value!![id]!!.embeddings.forEach { employeeEmbedding ->
+                                                val distance = employeeEmbedding.compareDistance(embedding)
+                                                Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
+
+                                                if(distance >= 0.7) {
+                                                    employee = employeeMap.value!![id]
+                                                    employee!!.currentTackID = id
+                                                }
+                                            }
                                         }
                                         else {
                                             employees.value!!.forEach { employee ->
                                                 employee.embeddings.forEach { employeeEmbedding ->
                                                     val distance = employeeEmbedding.compareDistance(embedding)
-                                                    if(distance >= 0.85) {
+
+                                                    if(distance >= 0.7) {
                                                         employee.currentTackID
                                                         employeeMap.value!![id] = employee
                                                     }
@@ -174,6 +187,9 @@ class CameraViewModel : ViewModel() {
         return proxy.format == ImageFormat.YUV_420_888
     }
 
+    /**
+     * Converts the ImageProxy to a Bitmap using GPU YUV.
+     */
     private fun createBitmapFromRect(proxy: ImageProxy, box: Rect) : Bitmap {
         val yBuffer = proxy.planes[0].buffer
         val uBuffer = proxy.planes[1].buffer
@@ -236,6 +252,8 @@ class CameraViewModel : ViewModel() {
             }
         }
     }
+
+    fun resetEmployeeMap() { employeeMap.value = hashMapOf() }
 
 
     fun getDetectorOptions() : FaceDetectorOptions {

@@ -30,6 +30,7 @@ class CameraActivity : ComponentActivity() {
         loadModelFile("FaceMobileNet.tflite")
 
         viewModel.detector.value = FaceDetection.getClient(viewModel.getDetectorOptions())
+        viewModel.resetEmployeeMap()
 
         val processCamera = ProcessCameraProvider.getInstance(this)
         val thread = ContextCompat.getMainExecutor(this)

@@ -2,7 +2,7 @@ package com.zachm.employeelogin.util
 
 import kotlin.math.abs
 
-data class Embedding (private val embeddings: FloatArray) {
+data class Embedding (val embeddings: FloatArray) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -20,6 +20,9 @@ data class Embedding (private val embeddings: FloatArray) {
         return 0f
     }
 
+    /**
+     * Manhattan distance normalized between 0f - 1f
+     */
     fun compareDistance(other: Embedding): Float {
         if(embeddings.size != other.embeddings.size) return 0f
 
@@ -29,8 +32,6 @@ data class Embedding (private val embeddings: FloatArray) {
             distance += abs(embeddings[i] - other.embeddings[i])
         }
 
-        distance /= embeddings.size
-
-        return distance
+        return 1f - (distance / (embeddings.size*2))
     }
 }
