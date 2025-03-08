@@ -1,6 +1,7 @@
 package com.zachm.employeelogin.util
 
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 data class Embedding (val embeddings: FloatArray) {
     override fun equals(other: Any?): Boolean {
@@ -20,10 +21,23 @@ data class Embedding (val embeddings: FloatArray) {
         return 0f
     }
 
+    fun compareDistance(other: Embedding): Float {
+        if(embeddings.size != other.embeddings.size) return 0f
+
+        var distance = 0f
+
+        for(i in embeddings.indices) {
+            val difference = embeddings[i] - other.embeddings[i]
+            distance += difference * difference
+        }
+
+        return 1f - (sqrt(distance) / sqrt(4f * embeddings.size))
+    }
+
     /**
      * Manhattan distance normalized between 0f - 1f
      */
-    fun compareDistance(other: Embedding): Float {
+    fun compareManhattanDistance(other: Embedding): Float {
         if(embeddings.size != other.embeddings.size) return 0f
 
         var distance = 0f
