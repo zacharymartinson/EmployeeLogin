@@ -21,7 +21,8 @@ data class Embedding (val embeddings: FloatArray) {
         return 0f
     }
 
-    fun compareDistance(other: Embedding): Float {
+    fun compareEuclideanDistance(other: Embedding): Float {
+        //TODO Doesnt Normalize Correctly Ignore Until I fix, (its recommended distance)
         if(embeddings.size != other.embeddings.size) return 0f
 
         var distance = 0f
@@ -31,7 +32,7 @@ data class Embedding (val embeddings: FloatArray) {
             distance += difference * difference
         }
 
-        return 1f - (sqrt(distance) / sqrt(4f * embeddings.size))
+        return 1f - (sqrt(distance) / (2f * sqrt(embeddings.size.toFloat())))
     }
 
     /**
