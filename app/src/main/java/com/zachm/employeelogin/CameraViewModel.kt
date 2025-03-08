@@ -96,11 +96,6 @@ class CameraViewModel : ViewModel() {
 
     }
 
-    fun addEmployee(employee: Employee) {
-        employees.value!!.add(employee)
-        employeeMap.value!![0] = employee
-    }
-
     fun addNewEmployee(name: String, id: Int, embedding: Embedding, currentId: Int) {
         val employee = Employee(name, id, mutableListOf(embedding))
         if(!employees.value!!.contains(employee)) {
@@ -135,28 +130,33 @@ class CameraViewModel : ViewModel() {
                                     val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
 
                                     //Model Stuff
-                                    val cropped = Bitmap.createBitmap(source, box.left.coerceIn(0,box.width()), box.top.coerceIn(0,box.height()), box.width(), box.height())
+                                    val cropped = Bitmap.createBitmap(source, box.left.coerceIn(0,source.width - 1), box.top.coerceIn(0,source.height - 1), box.width(), box.height())
                                     val embedding = modelFile.value!!.run(cropped, proxy.imageInfo.rotationDegrees)
 
                                     face.trackingId?.let { id ->
                                         if(employeeMap.value!!.contains(id)) {
                                             employeeMap.value!![id]!!.embeddings.forEach { employeeEmbedding ->
-                                                val distance = employeeEmbedding.compareDistance(embedding)
+                                                val distance = employeeEmbedding.compareManhattanDistance(embedding)
                                                 Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
 
                                                 employee = employeeMap.value!![id]
 
-                                                if(distance >= 0.8) {
+                                                if(distance >= 0.5) {
                                                     employee!!.lastTracked = currentTime
+                                                }
+
+                                                if(currentTime - employee!!.lastTracked > 1000) {
+                                                    employeeMap.value!!.remove(id)
                                                 }
                                             }
                                         }
                                         else {
                                             employees.value!!.forEach { employee ->
                                                 employee.embeddings.forEach { employeeEmbedding ->
-                                                    val distance = employeeEmbedding.compareDistance(embedding)
+                                                    val distance = employeeEmbedding.compareManhattanDistance(embedding)
+                                                    Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
 
-                                                    if(distance >= 0.8) {
+                                                    if(distance >= 0.5) {
                                                         employee.lastTracked = currentTime
                                                         employeeMap.value!![id] = employee
                                                     }
