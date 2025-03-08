@@ -50,6 +50,9 @@ class CameraViewModel : ViewModel() {
     private val _trackedFaces = MutableStateFlow<MutableList<TrackedFaces>?>(null)
     val trackedFaces: StateFlow<MutableList<TrackedFaces>?> get() = _trackedFaces
 
+    private val _showAddScreen = MutableStateFlow<Boolean?>(false)
+    val showAddScreen: StateFlow<Boolean?> get() = _showAddScreen
+
     @RequiresApi(Build.VERSION_CODES.Q)
     fun updateCameraFeed(
         processCamera: ListenableFuture<ProcessCameraProvider>,
@@ -98,10 +101,12 @@ class CameraViewModel : ViewModel() {
         employeeMap.value!![0] = employee
     }
 
-    fun addNewEmployee(name: String, embedding: Embedding, currentId: Int) {
-        val employee = Employee(name, mutableListOf(embedding), currentId)
-        employeeMap.value!![0] = employee
-        if(!employees.value!!.contains(employee)) employees.value!!.add(employee)
+    fun addNewEmployee(name: String, id: Int, embedding: Embedding, currentId: Int) {
+        val employee = Employee(name, id, mutableListOf(embedding))
+        if(!employees.value!!.contains(employee)) {
+            employees.value!!.add(employee)
+            employeeMap.value!![currentId] = employee
+        }
     }
 
 
@@ -124,6 +129,7 @@ class CameraViewModel : ViewModel() {
                                 it.forEach { face ->
                                     val box = face.boundingBox
                                     var employee: Employee? = null
+                                    val currentTime = System.currentTimeMillis()
 
                                     //Screen Stuff (UI)
                                     val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
@@ -138,9 +144,10 @@ class CameraViewModel : ViewModel() {
                                                 val distance = employeeEmbedding.compareDistance(embedding)
                                                 Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
 
-                                                if(distance >= 0.7) {
-                                                    employee = employeeMap.value!![id]
-                                                    employee!!.currentTackID = id
+                                                employee = employeeMap.value!![id]
+
+                                                if(distance >= 0.8) {
+                                                    employee!!.lastTracked = currentTime
                                                 }
                                             }
                                         }
@@ -149,8 +156,8 @@ class CameraViewModel : ViewModel() {
                                                 employee.embeddings.forEach { employeeEmbedding ->
                                                     val distance = employeeEmbedding.compareDistance(embedding)
 
-                                                    if(distance >= 0.7) {
-                                                        employee.currentTackID
+                                                    if(distance >= 0.8) {
+                                                        employee.lastTracked = currentTime
                                                         employeeMap.value!![id] = employee
                                                     }
                                                 }
@@ -254,6 +261,9 @@ class CameraViewModel : ViewModel() {
     }
 
     fun resetEmployeeMap() { employeeMap.value = hashMapOf() }
+
+    fun showAddScreen() { _showAddScreen.value = true }
+    fun closeAddScreen() { _showAddScreen.value = false }
 
 
     fun getDetectorOptions() : FaceDetectorOptions {
