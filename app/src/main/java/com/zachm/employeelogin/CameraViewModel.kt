@@ -3,6 +3,7 @@ package com.zachm.employeelogin
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.os.Build
@@ -27,6 +28,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.zachm.employeelogin.util.Candidate
 import com.zachm.employeelogin.util.Embedding
 import com.zachm.employeelogin.util.Employee
 import com.zachm.employeelogin.util.Model
@@ -52,6 +54,9 @@ class CameraViewModel : ViewModel() {
 
     private val _showAddScreen = MutableStateFlow<Boolean?>(false)
     val showAddScreen: StateFlow<Boolean?> get() = _showAddScreen
+
+    private val _faceBitmap = MutableStateFlow<Bitmap?>(null)
+    val faceBitmap: StateFlow<Bitmap?> get() = _faceBitmap
 
     @RequiresApi(Build.VERSION_CODES.Q)
     fun updateCameraFeed(
@@ -80,7 +85,7 @@ class CameraViewModel : ViewModel() {
                 .build()
 
             imageAnalysis.setAnalyzer(thread) {
-                detectFaces(it, screenSize)
+                if(showAddScreen.value == false) detectFaces(it, screenSize)
             }
 
             try {
@@ -97,7 +102,8 @@ class CameraViewModel : ViewModel() {
     }
 
     fun addNewEmployee(name: String, id: Int, embedding: Embedding, currentId: Int) {
-        val employee = Employee(name, id, mutableListOf(embedding))
+        val currentTime = System.currentTimeMillis()
+        val employee = Employee(name, id, mutableListOf(embedding), currentTime)
         if(!employees.value!!.contains(employee)) {
             employees.value!!.add(employee)
             employeeMap.value!![currentId] = employee
@@ -115,11 +121,19 @@ class CameraViewModel : ViewModel() {
             viewModelScope.launch {
                 withTimeout(20000) {
                     try {
+                        Log.d("CameraViewModel", "Rotation: ${proxy.imageInfo.rotationDegrees}")
                         val inputImage = InputImage.fromMediaImage(it, proxy.imageInfo.rotationDegrees)
                         detector.value!!.process(inputImage)
                             .addOnSuccessListener {
                                 val faces = mutableListOf<TrackedFaces>()
-                                val source = proxy.toBitmap()
+
+                                var source = proxy.toBitmap()
+
+                                if(proxy.imageInfo.rotationDegrees != 0) {
+                                    val matrix = Matrix()
+                                    matrix.postRotate(proxy.imageInfo.rotationDegrees.toFloat())
+                                    source = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+                                }
 
                                 it.forEach { face ->
                                     val box = face.boundingBox
@@ -130,37 +144,50 @@ class CameraViewModel : ViewModel() {
                                     val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
 
                                     //Model Stuff
-                                    val cropped = Bitmap.createBitmap(source, box.left.coerceIn(0,source.width - 1), box.top.coerceIn(0,source.height - 1), box.width(), box.height())
+                                    val x = box.left.coerceIn(0, source.width - 1)
+                                    val y = box.top.coerceIn(0, source.height - 1)
+                                    val width = box.width().coerceAtMost(source.width - x)
+                                    val height = box.height().coerceAtMost(source.height - y)
+
+                                    val cropped = Bitmap.createBitmap(source, x, y, width, height)
+                                    _faceBitmap.value = cropped.copy(Bitmap.Config.ARGB_8888, true)
                                     val embedding = modelFile.value!!.run(cropped, proxy.imageInfo.rotationDegrees)
 
                                     face.trackingId?.let { id ->
                                         if(employeeMap.value!!.contains(id)) {
                                             employeeMap.value!![id]!!.embeddings.forEach { employeeEmbedding ->
-                                                val distance = employeeEmbedding.compareManhattanDistance(embedding)
+                                                val distance = employeeEmbedding.compareCosineSimilarity(embedding)
                                                 Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
 
                                                 employee = employeeMap.value!![id]
 
-                                                if(distance >= 0.5) {
+                                                if(distance >= 0.8) {
                                                     employee!!.lastTracked = currentTime
                                                 }
 
-                                                if(currentTime - employee!!.lastTracked > 1000) {
+                                                if(currentTime - employee!!.lastTracked > 2000L) {
+                                                    Log.d("CameraViewModel", "Removing Employee: $id")
                                                     employeeMap.value!!.remove(id)
                                                 }
                                             }
                                         }
                                         else {
+                                            var bestCandidate: Candidate? = null
                                             employees.value!!.forEach { employee ->
                                                 employee.embeddings.forEach { employeeEmbedding ->
-                                                    val distance = employeeEmbedding.compareManhattanDistance(embedding)
-                                                    Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
+                                                    val distance = employeeEmbedding.compareCosineSimilarity(embedding)
+                                                    Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}, Candidate: $bestCandidate")
 
-                                                    if(distance >= 0.5) {
-                                                        employee.lastTracked = currentTime
-                                                        employeeMap.value!![id] = employee
+                                                    if(distance >= 0.8) {
+                                                        if (bestCandidate == null || distance > bestCandidate!!.distance) {
+                                                            bestCandidate = Candidate(distance, employee)
+                                                        }
                                                     }
                                                 }
+                                            }
+                                            bestCandidate?.let {
+                                                employee = it.employee
+                                                employeeMap.value!![id] = employee!!
                                             }
                                         }
                                     }
@@ -225,10 +252,6 @@ class CameraViewModel : ViewModel() {
 
         val widthRatio = if(isPortrait) screenSize.width.toFloat() / cameraSize.height.toFloat() else screenSize.width.toFloat() / cameraSize.width.toFloat()
         val heightRatio = if(isPortrait) screenSize.height.toFloat() / cameraSize.width.toFloat() else screenSize.height.toFloat() / cameraSize.height.toFloat()
-
-        val cameraAspectRatio = cameraSize.width.toFloat() / cameraSize.height.toFloat()
-        val screenAspectRatio = screenSize.width.toFloat() / screenSize.height.toFloat()
-        val aspectRatio = abs(cameraAspectRatio - screenAspectRatio)
 
         val box = Rect(
             (rect.left * widthRatio).toInt(),

@@ -8,6 +8,7 @@ import androidx.annotation.RequiresApi
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -18,16 +19,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -42,14 +35,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.draw
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
@@ -84,16 +80,17 @@ fun CameraScreen(
 
     val faces by viewModel.trackedFaces.collectAsState()
     val showAddScreen by viewModel.showAddScreen.collectAsState()
+    val faceBitmap by viewModel.faceBitmap.collectAsState()
 
     var screenSize by remember { mutableStateOf(IntSize(0,0)) }
     val textMeasurer = rememberTextMeasurer()
     val text = remember { textMeasurer.measure(text = "+", style = TextStyle(fontSize = 80.sp, color = Color.Green, fontWeight = FontWeight.Thin)) }
 
-    //For the text field TODO Logistics for if I want it in this screen
+    //For the text field
     val idText = remember { mutableStateOf("") }
     val nameText = remember { mutableStateOf("") }
 
-    //Need this for the gui as the camera works in the backgroud. TODO Decide if I want it running in the background.
+    //Need this for the gui as the camera works in the backgroud.
     val currentFace = remember { mutableStateOf<TrackedFaces?>(null) }
 
     Box(
@@ -102,24 +99,32 @@ fun CameraScreen(
             .onSizeChanged { screenSize = it }
     ) {
 
-        AndroidView(
-            factory = { context ->
-                PreviewView(context).apply {
+        if(showAddScreen == false) {
+            //This is CameraX
+            AndroidView(
+                factory = { context ->
+                    PreviewView(context).apply {
+                        //implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        //scaleX = -1f
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize(),
+                update = {
+                    viewModel.updateCameraFeed(processCamera, it.surfaceProvider, lifeCycleOwner, thread, screenSize)
                 }
-            },
-            modifier = Modifier.fillMaxSize(),
-            update = {
-                viewModel.updateCameraFeed(processCamera, it.surfaceProvider, lifeCycleOwner, thread, screenSize)
-            }
-        )
+            )
 
+        }
+
+        //This handles all Box related things.
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) { detectTapGestures { offset ->
                     faces?.let {
                         it.forEach { face ->
-                            if(face.box.contains(offset.x.toInt(), offset.y.toInt())) {
+                            if(face.box.contains(offset.x.toInt(), offset.y.toInt()) && face.employee == null) {
                                 currentFace.value = face
                                 viewModel.showAddScreen()
                             }
@@ -141,6 +146,7 @@ fun CameraScreen(
                         style = Stroke(width = 4f)
                     )
 
+                    //Case for Unknown so we can press + on it
                     if(face.employee == null) {
                         drawText(
                             textLayoutResult = text,
@@ -215,6 +221,16 @@ fun CameraScreen(
                             cursorColor = Color.White
                         )
                     )
+
+                    Log.d("CameraScreen", "FaceBitmap: $faceBitmap")
+                    if(faceBitmap != null) {
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        Image(
+                            bitmap = faceBitmap!!.asImageBitmap(),
+                            contentDescription = "Face Bitmap"
+                        )
+                    }
 
                     Spacer(modifier = Modifier.weight(1f))
 
@@ -308,6 +324,13 @@ private fun preview() {
                         cursorColor = Color.White
                     )
                 )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Box(Modifier
+                    .background(Color.Black)
+                    .fillMaxWidth(0.6f)
+                    .fillMaxHeight(0.4f))
 
                 Spacer(modifier = Modifier.weight(1f))
 
