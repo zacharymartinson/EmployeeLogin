@@ -8,11 +8,22 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import com.zachm.employeelogin.CameraViewModel
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.nnapi.NnApiDelegate
 import java.nio.MappedByteBuffer
 import kotlin.math.exp
 
 class Model(viewModel: CameraViewModel, modelFile: MappedByteBuffer) {
-    private val model: Interpreter = Interpreter(modelFile)
+
+    private lateinit var model: Interpreter
+
+    init {
+        val delegateOptions = Interpreter.Options().apply {
+            addDelegate(GpuDelegate())
+            addDelegate(NnApiDelegate())
+        }
+        model = Interpreter(modelFile, delegateOptions)
+    }
 
 
     /**
