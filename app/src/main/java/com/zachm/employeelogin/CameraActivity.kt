@@ -1,5 +1,6 @@
 package com.zachm.employeelogin
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -42,9 +43,13 @@ class CameraActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * CameraX needs to be handled for things like rotation and when the app isn't in focus
+     */
     override fun onPause() {
         super.onPause()
         ProcessCameraProvider.getInstance(this).get().unbindAll()
+        startActivity(Intent(this, HomeActivity::class.java))
     }
 
     /**
