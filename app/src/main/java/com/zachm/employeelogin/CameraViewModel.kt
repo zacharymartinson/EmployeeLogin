@@ -3,7 +3,6 @@ package com.zachm.employeelogin
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
-import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.os.Build
@@ -28,7 +27,6 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
-import com.zachm.employeelogin.util.Candidate
 import com.zachm.employeelogin.util.Embedding
 import com.zachm.employeelogin.util.Employee
 import com.zachm.employeelogin.util.Model
@@ -39,7 +37,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executor
-import kotlin.math.abs
 
 class CameraViewModel : ViewModel() {
 
@@ -58,6 +55,15 @@ class CameraViewModel : ViewModel() {
     private val _faceBitmap = MutableStateFlow<Bitmap?>(null)
     val faceBitmap: StateFlow<Bitmap?> get() = _faceBitmap
 
+    fun updateTrackedFaces(faces: MutableList<TrackedFaces>) {
+        _trackedFaces.value = faces
+    }
+
+    fun updateFaceBitmap(bitmap: Bitmap) {
+        _faceBitmap.value?.recycle()
+        _faceBitmap.value = bitmap
+    }
+
     @RequiresApi(Build.VERSION_CODES.Q)
     fun updateCameraFeed(
         processCamera: ListenableFuture<ProcessCameraProvider>,
@@ -70,7 +76,7 @@ class CameraViewModel : ViewModel() {
         if(permissionGranted.value == false) return
 
         processCamera.addListener({
-            val cameraSelector = CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
+            val cameraSelector = CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_FRONT).build()
             val imageFuture = processCamera.get()
             val preview = Preview.Builder().build().also { it.surfaceProvider = surfaceProvider }
 
@@ -121,84 +127,12 @@ class CameraViewModel : ViewModel() {
             viewModelScope.launch {
                 withTimeout(20000) {
                     try {
-                        Log.d("CameraViewModel", "Rotation: ${proxy.imageInfo.rotationDegrees}")
                         val inputImage = InputImage.fromMediaImage(it, proxy.imageInfo.rotationDegrees)
                         detector.value!!.process(inputImage)
                             .addOnSuccessListener {
-                                val faces = mutableListOf<TrackedFaces>()
-
-                                var source = proxy.toBitmap()
-
-                                if(proxy.imageInfo.rotationDegrees != 0) {
-                                    val matrix = Matrix()
-                                    matrix.postRotate(proxy.imageInfo.rotationDegrees.toFloat())
-                                    source = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+                                viewModelScope.launch {
+                                    modelFile.value!!.run(it, proxy, screenSize)
                                 }
-
-                                it.forEach { face ->
-                                    val box = face.boundingBox
-                                    var employee: Employee? = null
-                                    val currentTime = System.currentTimeMillis()
-
-                                    //Screen Stuff (UI)
-                                    val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
-
-                                    //Model Stuff
-                                    val x = box.left.coerceIn(0, source.width - 1)
-                                    val y = box.top.coerceIn(0, source.height - 1)
-                                    val width = box.width().coerceAtMost(source.width - x)
-                                    val height = box.height().coerceAtMost(source.height - y)
-
-                                    val cropped = Bitmap.createBitmap(source, x, y, width, height)
-                                    _faceBitmap.value = cropped.copy(Bitmap.Config.ARGB_8888, true)
-                                    val embedding = modelFile.value!!.run(cropped, proxy.imageInfo.rotationDegrees)
-
-                                    face.trackingId?.let { id ->
-                                        if(employeeMap.value!!.contains(id)) {
-                                            employeeMap.value!![id]!!.embeddings.forEach { employeeEmbedding ->
-                                                val distance = employeeEmbedding.compareCosineSimilarity(embedding)
-                                                Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
-
-                                                employee = employeeMap.value!![id]
-
-                                                if(distance >= 0.8) {
-                                                    employee!!.lastTracked = currentTime
-                                                }
-
-                                                if(currentTime - employee!!.lastTracked > 2000L) {
-                                                    Log.d("CameraViewModel", "Removing Employee: $id")
-                                                    employeeMap.value!!.remove(id)
-                                                }
-                                            }
-                                        }
-                                        else {
-                                            var bestCandidate: Candidate? = null
-                                            employees.value!!.forEach { employee ->
-                                                employee.embeddings.forEach { employeeEmbedding ->
-                                                    val distance = employeeEmbedding.compareCosineSimilarity(embedding)
-                                                    Log.d("CameraViewModel", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}, Candidate: $bestCandidate")
-
-                                                    if(distance >= 0.8) {
-                                                        if (bestCandidate == null || distance > bestCandidate!!.distance) {
-                                                            bestCandidate = Candidate(distance, employee)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            bestCandidate?.let {
-                                                employee = it.employee
-                                                employeeMap.value!![id] = employee!!
-                                            }
-                                        }
-                                    }
-
-                                    //Unknown
-                                    faces.add(TrackedFaces(face.trackingId ?: 0, scaledBox, employee, embedding))
-
-                                }
-                                _trackedFaces.value = faces
-                                source.recycle()
-
                                 proxy.close()
                             }
                             .addOnFailureListener {

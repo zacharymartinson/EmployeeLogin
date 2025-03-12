@@ -104,8 +104,9 @@ fun CameraScreen(
             AndroidView(
                 factory = { context ->
                     PreviewView(context).apply {
-                        //implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                        //scaleX = -1f
+                        //This is for the front camera (it is automatically mirrored in CameraX)
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        scaleX = -1f
                     }
                 },
                 modifier = Modifier
