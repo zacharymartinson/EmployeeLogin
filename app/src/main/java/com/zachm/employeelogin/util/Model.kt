@@ -2,8 +2,11 @@ package com.zachm.employeelogin.util
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
+import android.graphics.YuvImage
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -14,6 +17,7 @@ import com.zachm.employeelogin.CameraViewModel
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.nnapi.NnApiDelegate
+import java.io.ByteArrayOutputStream
 import java.nio.MappedByteBuffer
 import kotlin.math.exp
 
@@ -69,6 +73,9 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
 
             val cropped = Bitmap.createBitmap(source, x, y, width, height)
 
+            //For those who want to explore doing it with YUV (it didn't save me much.) Only works on 0 Rotation. Might add later.
+            //val yuv = createBitmapFromRect(proxy, box)
+
             val embedding = inference(cropped, proxy.imageInfo.rotationDegrees)
             val employeeMap = viewModel.employeeMap.value!!
             val employees = viewModel.employees.value!!
@@ -77,7 +84,6 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
                 if(employeeMap.contains(id)) {
                     employeeMap[id]!!.embeddings.forEach { employeeEmbedding ->
                         val distance = employeeEmbedding.compareCosineSimilarity(embedding)
-                        Log.d("Model", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}")
 
                         employee = employeeMap[id]
 
@@ -88,7 +94,6 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
                         // 1 seconds of smoothening for tracking
                         //TODO add login functionality here through viewModel (should probably have database stuff there too)
                         if(currentTime - employee!!.lastTracked > 1000L) {
-                            Log.d("Model", "Removing Employee: $id")
                             employeeMap.remove(id)
                         }
                     }
@@ -98,7 +103,6 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
                     employees.forEach { employee ->
                         employee.embeddings.forEach { employeeEmbedding ->
                             val distance = employeeEmbedding.compareCosineSimilarity(embedding)
-                            Log.d("Model", "Distance: $distance, EmbeddingStored: ${employeeEmbedding.embeddings[0]}, EmbeddingNew: ${embedding.embeddings[0]}, Candidate: $bestCandidate")
 
                             if(distance >= threshold) {
                                 if (bestCandidate == null || distance > bestCandidate!!.distance) {
@@ -220,5 +224,35 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
         if(newBitmap.width != 112 || newBitmap.height != 112) return Bitmap.createScaledBitmap(newBitmap, 112, 112, true)
 
         return newBitmap
+    }
+
+    /**
+     * Most Android Cameras Use 420 but still good to check
+     */
+    private fun isYUV420(proxy: ImageProxy): Boolean {
+        return proxy.format == ImageFormat.YUV_420_888
+    }
+
+    /**
+     * Converts the ImageProxy to a Bitmap using GPU YUV.
+     */
+    private fun createBitmapFromRect(proxy: ImageProxy, box: Rect) : Bitmap {
+        val yBuffer = proxy.planes[0].buffer
+        val uBuffer = proxy.planes[1].buffer
+        val vBuffer = proxy.planes[2].buffer
+
+        val ySize = yBuffer.remaining()
+        val uSize = uBuffer.remaining()
+        val vSize = vBuffer.remaining()
+
+        val nv21 = ByteArray(ySize + uSize + vSize)
+        yBuffer.get(nv21, 0, ySize)
+        vBuffer.get(nv21, ySize, uSize)
+        uBuffer.get(nv21, ySize + uSize, vSize)
+
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, proxy.width, proxy.height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(box, 100, out)
+        return BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
     }
 }
