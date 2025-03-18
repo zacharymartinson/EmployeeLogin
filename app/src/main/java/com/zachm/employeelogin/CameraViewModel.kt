@@ -40,7 +40,7 @@ class CameraViewModel : ViewModel() {
     val permissionGranted: MutableLiveData<Boolean> by lazy { MutableLiveData<Boolean>(false) }
     val detector: MutableLiveData<FaceDetector> by lazy { MutableLiveData<FaceDetector>() }
     val modelFile: MutableLiveData<Model> by lazy { MutableLiveData<Model>() }
-    val employees: MutableLiveData<HashSet<Employee>> by lazy { MutableLiveData<HashSet<Employee>>(hashSetOf()) }
+    val employees: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
     val employeeMap: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
 
     private val _trackedFaces = MutableStateFlow<MutableList<TrackedFaces>?>(null)
@@ -107,8 +107,13 @@ class CameraViewModel : ViewModel() {
     fun addNewEmployee(name: String, id: Int, embedding: Embedding, currentId: Int) {
         val currentTime = System.currentTimeMillis()
         val employee = Employee(name, id, mutableListOf(embedding), currentTime)
-        if(!employees.value!!.contains(employee)) {
-            employees.value!!.add(employee)
+        if(!employees.value!!.contains(id)) {
+            employees.value!![id] = employee
+            employeeMap.value!![currentId] = employee
+        }
+        else {
+            employees.value!![id]!!.embeddings.add(embedding)
+            employees.value!![id]!!.lastTracked = currentTime
             employeeMap.value!![currentId] = employee
         }
     }

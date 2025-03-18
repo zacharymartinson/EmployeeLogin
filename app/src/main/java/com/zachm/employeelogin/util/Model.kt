@@ -49,6 +49,8 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
 
     @SuppressLint("NewApi")
     fun run(faces: MutableList<Face>, proxy: ImageProxy, screenSize: IntSize) {
+        val employeeMap = viewModel.employeeMap.value!!
+        val employees = viewModel.employees.value!!
 
         //Have to convert to a bitmap (everytime we make a bitmap it is slow)
         var source = proxy.toBitmap()
@@ -56,11 +58,11 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
 
         val trackedFaces = mutableListOf<TrackedFaces>()
         val threshold = 0.8f //Recommended by sirius who developed the weights
+        val currentTime = System.currentTimeMillis()
 
         faces.forEach { face ->
             val box = face.boundingBox
             var employee: Employee? = null
-            val currentTime = System.currentTimeMillis()
 
             //Screen Stuff for Compose
             val scaledBox = getScaledRect(screenSize, IntSize(proxy.width, proxy.height), box, proxy.imageInfo.rotationDegrees)
@@ -77,8 +79,6 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
             //val yuv = createBitmapFromRect(proxy, box)
 
             val embedding = inference(cropped, proxy.imageInfo.rotationDegrees)
-            val employeeMap = viewModel.employeeMap.value!!
-            val employees = viewModel.employees.value!!
 
             face.trackingId?.let { id ->
                 if(employeeMap.contains(id)) {
@@ -91,22 +91,19 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
                             employee!!.lastTracked = currentTime
                         }
 
-                        // 1 seconds of smoothening for tracking
-                        //TODO add login functionality here through viewModel (should probably have database stuff there too)
-                        if(currentTime - employee!!.lastTracked > 1000L) {
-                            employeeMap.remove(id)
-                        }
+                        //TODO We longin here by checking successful frames or time.
                     }
                 }
                 else {
                     var bestCandidate: Candidate? = null
+
                     employees.forEach { employee ->
-                        employee.embeddings.forEach { employeeEmbedding ->
+                        employee.value.embeddings.forEach { employeeEmbedding ->
                             val distance = employeeEmbedding.compareCosineSimilarity(embedding)
 
                             if(distance >= threshold) {
                                 if (bestCandidate == null || distance > bestCandidate!!.distance) {
-                                    bestCandidate = Candidate(distance, employee)
+                                    bestCandidate = Candidate(distance, employee.value)
                                 }
                             }
                         }
@@ -125,6 +122,14 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
             viewModel.employees.value = employees
             viewModel.updateFaceBitmap(cropped)
         }
+
+        //Clear map of old times
+        employeeMap.forEach { employee->
+            if(currentTime - employee.value.lastTracked > 1000L) {
+                employeeMap.remove(employee.key)
+            }
+        }
+
 
         viewModel.updateTrackedFaces(trackedFaces)
         source.recycle()
