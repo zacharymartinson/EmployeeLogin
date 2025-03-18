@@ -225,7 +225,6 @@ fun CameraScreen(
                         )
                     )
 
-                    Log.d("CameraScreen", "FaceBitmap: $faceBitmap")
                     if(faceBitmap != null) {
                         Spacer(modifier = Modifier.weight(1f))
 
@@ -235,6 +234,7 @@ fun CameraScreen(
                             modifier = Modifier
                                 .fillMaxWidth(0.6f)
                                 .fillMaxHeight(0.6f)
+                                .clip(RoundedCornerShape(6.dp))
                         )
                     }
 
