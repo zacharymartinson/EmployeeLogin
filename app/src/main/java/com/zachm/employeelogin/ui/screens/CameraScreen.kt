@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
@@ -77,6 +78,8 @@ fun CameraScreen(
     processCamera: ListenableFuture<ProcessCameraProvider>, lifeCycleOwner: LifecycleOwner, thread: Executor) {
 
     val viewModel: CameraViewModel = viewModel()
+    val configuration = LocalConfiguration.current
+    val isPortrait = configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
 
     val faces by viewModel.trackedFaces.collectAsState()
     val showAddScreen by viewModel.showAddScreen.collectAsState()
@@ -164,14 +167,13 @@ fun CameraScreen(
 
         }
 
-        Log.d("CameraScreen", "ShowAddScreen: $showAddScreen")
         if(showAddScreen == true) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .clip(RoundedCornerShape(16.dp))
-                    .fillMaxWidth(0.8f)
-                    .fillMaxHeight(0.6f)
+                    .fillMaxWidth(if(isPortrait) 0.8f else 0.5f)
+                    .fillMaxHeight(if(isPortrait) 0.6f else 0.85f)
                     .background(HomeBackground)
             ) {
 
@@ -223,13 +225,15 @@ fun CameraScreen(
                         )
                     )
 
-                    Log.d("CameraScreen", "FaceBitmap: $faceBitmap")
                     if(faceBitmap != null) {
                         Spacer(modifier = Modifier.weight(1f))
 
                         Image(
                             bitmap = faceBitmap!!.asImageBitmap(),
-                            contentDescription = "Face Bitmap"
+                            contentDescription = "Face Bitmap",
+                            modifier = Modifier
+                                .fillMaxWidth(0.6f)
+                                .fillMaxHeight(0.6f)
                         )
                     }
 

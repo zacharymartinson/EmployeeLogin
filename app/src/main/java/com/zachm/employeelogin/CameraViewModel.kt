@@ -1,10 +1,7 @@
 package com.zachm.employeelogin
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageFormat
 import android.graphics.Rect
-import android.graphics.YuvImage
 import android.os.Build
 import android.util.Log
 import android.util.Size
@@ -25,6 +22,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.zachm.employeelogin.util.Embedding
@@ -35,7 +33,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executor
 
 class CameraViewModel : ViewModel() {
@@ -43,7 +40,7 @@ class CameraViewModel : ViewModel() {
     val permissionGranted: MutableLiveData<Boolean> by lazy { MutableLiveData<Boolean>(false) }
     val detector: MutableLiveData<FaceDetector> by lazy { MutableLiveData<FaceDetector>() }
     val modelFile: MutableLiveData<Model> by lazy { MutableLiveData<Model>() }
-    val employees: MutableLiveData<HashSet<Employee>> by lazy { MutableLiveData<HashSet<Employee>>(hashSetOf()) }
+    val employees: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
     val employeeMap: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
 
     private val _trackedFaces = MutableStateFlow<MutableList<TrackedFaces>?>(null)
@@ -110,8 +107,13 @@ class CameraViewModel : ViewModel() {
     fun addNewEmployee(name: String, id: Int, embedding: Embedding, currentId: Int) {
         val currentTime = System.currentTimeMillis()
         val employee = Employee(name, id, mutableListOf(embedding), currentTime)
-        if(!employees.value!!.contains(employee)) {
-            employees.value!!.add(employee)
+        if(!employees.value!!.contains(id)) {
+            employees.value!![id] = employee
+            employeeMap.value!![currentId] = employee
+        }
+        else {
+            employees.value!![id]!!.embeddings.add(embedding)
+            employees.value!![id]!!.lastTracked = currentTime
             employeeMap.value!![currentId] = employee
         }
     }
@@ -146,36 +148,6 @@ class CameraViewModel : ViewModel() {
                 }
             }
         }
-    }
-
-    /**
-     * Most Android Cameras Use 420 but still good to check
-     */
-    private fun isYUV420(proxy: ImageProxy): Boolean {
-        return proxy.format == ImageFormat.YUV_420_888
-    }
-
-    /**
-     * Converts the ImageProxy to a Bitmap using GPU YUV.
-     */
-    private fun createBitmapFromRect(proxy: ImageProxy, box: Rect) : Bitmap {
-        val yBuffer = proxy.planes[0].buffer
-        val uBuffer = proxy.planes[1].buffer
-        val vBuffer = proxy.planes[2].buffer
-
-        val ySize = yBuffer.remaining()
-        val uSize = uBuffer.remaining()
-        val vSize = vBuffer.remaining()
-
-        val nv21 = ByteArray(ySize + uSize + vSize)
-        yBuffer.get(nv21, 0, ySize)
-        uBuffer.get(nv21, ySize, uSize)
-        vBuffer.get(nv21, ySize + uSize, vSize)
-
-        val yuvImage = YuvImage(nv21, ImageFormat.NV21, proxy.width, proxy.height, null)
-        val out = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(box, 100, out)
-        return BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
     }
 
     /**
