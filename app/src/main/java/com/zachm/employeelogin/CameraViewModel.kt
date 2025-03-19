@@ -38,6 +38,7 @@ import java.util.concurrent.Executor
 class CameraViewModel : ViewModel() {
 
     val permissionGranted: MutableLiveData<Boolean> by lazy { MutableLiveData<Boolean>(false) }
+    val login: MutableLiveData<Boolean> by lazy { MutableLiveData<Boolean>(false) }
     val detector: MutableLiveData<FaceDetector> by lazy { MutableLiveData<FaceDetector>() }
     val modelFile: MutableLiveData<Model> by lazy { MutableLiveData<Model>() }
     val employees: MutableLiveData<HashMap<Int, Employee>> by lazy { MutableLiveData<HashMap<Int, Employee>>(hashMapOf()) }
@@ -199,5 +200,9 @@ class CameraViewModel : ViewModel() {
         return FaceDetectorOptions.Builder()
             .enableTracking()
             .build()
+    }
+
+    fun login() {
+        login.value = true
     }
 }
