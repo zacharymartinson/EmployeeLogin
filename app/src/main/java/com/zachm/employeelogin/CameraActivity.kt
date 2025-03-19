@@ -31,6 +31,7 @@ class CameraActivity : ComponentActivity() {
         loadModelFile("FaceMobileNet.tflite")
 
         viewModel.detector.value = FaceDetection.getClient(viewModel.getDetectorOptions())
+        viewModel.login.observe(this) { login(it) }
         viewModel.resetEmployeeMap()
 
         val processCamera = ProcessCameraProvider.getInstance(this)
@@ -42,6 +43,8 @@ class CameraActivity : ComponentActivity() {
             CameraScreen(processCamera, this, thread)
         }
     }
+
+    private fun login(it: Boolean?) { if(it == true) { startActivity(Intent(this, HomeActivity::class.java)) } }
 
     /**
      * CameraX needs to be handled for things like rotation and when the app isn't in focus

@@ -89,9 +89,13 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
 
                         if(distance >= threshold) {
                             employee!!.lastTracked = currentTime
+                            employee!!.framesTracked += 2
                         }
 
                         //TODO We longin here by checking successful frames or time.
+                        if(employee!!.framesTracked >= 10) {
+                            viewModel.login()
+                        }
                     }
                 }
                 else {
@@ -127,6 +131,9 @@ class Model(private val viewModel: CameraViewModel, modelFile: MappedByteBuffer)
         employeeMap.forEach { employee->
             if(currentTime - employee.value.lastTracked > 1000L) {
                 employeeMap.remove(employee.key)
+            }
+            if(employee.value.framesTracked > 0) {
+                employee.value.framesTracked--
             }
         }
 
